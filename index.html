@@ -270,6 +270,27 @@ async function loadParamsAndEnter(){
   document.getElementById('userRole').textContent = CURRENT_USER.role;
   buildNav();
   goTo('accueil');
+  setupRealtime();
+}
+const REALTIME_TABLES = ['locataires','locaux','paiements','paiements_arrieres','depenses','cours','types_maison','adresses_locaux','utilisateurs','parametres_generales'];
+let _realtimeChannel = null;
+function setupRealtime(){
+  if(_realtimeChannel) return;
+  let debounceTimer = null;
+  _realtimeChannel = sb.channel('gjm_realtime_channel');
+  REALTIME_TABLES.forEach(t=>{
+    _realtimeChannel.on('postgres_changes', {event:'*', schema:'public', table:t}, ()=>{
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(rafraichirPageActuelle, 350);
+    });
+  });
+  _realtimeChannel.subscribe();
+}
+function rafraichirPageActuelle(){
+  // Ne pas rafraîchir si un formulaire/modal est ouvert, pour ne pas interrompre la saisie
+  if(document.getElementById('modalOverlay')) return;
+  const fn = {accueil:renderAccueil, locataires:renderLocataires, dossiers:renderDossiers, locaux:renderLocaux, paiements:renderPaiements, comptabilite:renderComptabilite, options:renderOptions}[CURRENT_PAGE];
+  if(fn) fn();
 }
 function applyBranding(){
   if(!PARAMS) return;
