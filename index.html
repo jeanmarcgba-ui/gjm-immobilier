@@ -1667,7 +1667,7 @@ async function saveEditPaiement(id){
   if(error){ toast("Erreur: "+error.message); return; }
   closeModal();
   toast("Paiement modifié ✅ (comptabilité mise à jour)");
-  renderPaiements();
+  if(CURRENT_PAGE==='comptabilite') renderComptabilite(); else renderPaiements();
 }
 async function deletePaiement(id){
   if(!confirm("Confirmez-vous la suppression de ce paiement ? La comptabilité sera automatiquement mise à jour.")) return;
@@ -1875,7 +1875,7 @@ async function renderComptabilite(){
     sb.from('paiements_arrieres').select('*').order('date_paiement',{ascending:false}),
     sb.from('adresses_locaux').select('*')
   ]);
-  window._locatairesCache = locataires||[]; window._locauxCache = locaux||[]; window._coursCache = cours||[]; window._typesCache = types||[]; window._adressesCache = adresses||[];
+  window._locatairesCache = locataires||[]; window._locauxCache = locaux||[]; window._coursCache = cours||[]; window._typesCache = types||[]; window._adressesCache = adresses||[]; window._paiementsCache = paiements||[]; window._paiementsArrieresCache = paiementsArrieres||[]; window._depensesCache = depenses||[];
   const totalRecuLoyers = (paiements||[]).reduce((s,p)=>s+Number(p.total_recu||p.montant_recu||0),0);
   const totalRecuArrieres = (paiementsArrieres||[]).reduce((s,p)=>s+Number(p.montant_paye||0),0);
   const totalRecu = totalRecuLoyers + totalRecuArrieres;
@@ -1901,11 +1901,11 @@ async function renderComptabilite(){
     const l = (locataires||[]).find(x=>x.id===p.locataire_id);
     const nom = l?(l.type_local==='habitation'?l.h_nom_prenom:l.c_nom_entreprise):'—';
     const info = infoLocal(p.locaux_id);
-    return `<tr data-cour="${info.cour}" data-type="${info.typ}"><td>${fmtDate(p.date_paiement)}</td><td>${nom}</td><td>${info.cour||'—'}</td><td>${info.typ||'—'}</td><td>${fmtDate(p.mois_concerne)}</td><td>${fmtMoney(p.montant_recu)}</td><td>${fmtMoney(p.reste)}</td><td>${fmtMoney(p.montant_arriere_paye)}</td><td><b>${fmtMoney(p.total_recu||p.montant_recu)}</b></td></tr>`;
+    return `<tr data-cour="${info.cour}" data-type="${info.typ}"><td>${fmtDate(p.date_paiement)}</td><td><b style="cursor:pointer;color:var(--navy);text-decoration:underline;" onclick="editPaiement('${p.id}')">${nom}</b></td><td>${info.cour||'—'}</td><td>${info.typ||'—'}</td><td>${fmtDate(p.mois_concerne)}</td><td>${fmtMoney(p.montant_recu)}</td><td>${fmtMoney(p.reste)}</td><td>${fmtMoney(p.montant_arriere_paye)}</td><td><b>${fmtMoney(p.total_recu||p.montant_recu)}</b></td></tr>`;
   }).join('');
   const rowsDepenses = (depenses||[]).map(d=>{
     const info = infoDepense(d);
-    return `<tr data-cour="${info.cour}" data-type="${info.typ}"><td>${fmtDate(d.date_depense)}</td><td>${d.libelle}</td><td>${info.cour||'—'}</td><td>${info.typ||'—'}</td><td>${fmtMoney(d.montant)}</td>
+    return `<tr data-cour="${info.cour}" data-type="${info.typ}"><td>${fmtDate(d.date_depense)}</td><td><b style="cursor:pointer;color:var(--navy);text-decoration:underline;" onclick="editDepense('${d.id}')">${d.libelle}</b></td><td>${info.cour||'—'}</td><td>${info.typ||'—'}</td><td>${fmtMoney(d.montant)}</td>
     <td><button class="btn-danger" onclick="deleteDepense('${d.id}')" style="padding:5px 9px;font-size:11px;">Suppr.</button></td></tr>`;
   }).join('');
 
@@ -2539,6 +2539,56 @@ function onDepenseCourChange(){
   const types = window._typesCache||[];
   const typesFiltres = courId ? types.filter(t=>t.cour_id===courId) : types;
   selType.innerHTML = '<option value="">— Aucun —</option>' + typesFiltres.map(t=>`<option value="${t.id}">${t.nom}</option>`).join('');
+}
+function editDepense(id){
+  const d = (window._depensesCache||[]).find(x=>x.id===id);
+  if(!d) return;
+  const cours = window._coursCache||[];
+  const types = window._typesCache||[];
+  const typesFiltres = d.cour_id ? types.filter(t=>t.cour_id===d.cour_id) : types;
+  openModal(`
+    <h2>Modifier la dépense</h2>
+    <div class="row">
+      <div class="field"><label>Date</label><input type="date" id="ed_date" value="${d.date_depense}"></div>
+      <div class="field"><label>Libellé</label><input id="ed_libelle" value="${d.libelle}"></div>
+      <div class="field"><label>Montant</label><input type="number" id="ed_montant" value="${d.montant}"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Cour concernée (optionnel)</label>
+        <select id="ed_cour_id" onchange="onEditDepenseCourChange()"><option value="">— Aucune —</option>${cours.map(c=>`<option value="${c.id}" ${d.cour_id===c.id?'selected':''}>${c.nom}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>Adresse de la cour</label><input id="ed_adresse_affichee" readonly></div>
+      <div class="field"><label>Type de maison concerné (optionnel)</label>
+        <select id="ed_type_maison_id">${typesFiltres.map(t=>`<option value="${t.id}" ${d.type_maison_id===t.id?'selected':''}>${t.nom}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal()">Annuler</button>
+      <button class="btn-primary" onclick="saveEditDepense('${d.id}')">Enregistrer les modifications</button>
+    </div>
+  `);
+  onEditDepenseCourChange();
+}
+function onEditDepenseCourChange(){
+  const courId = document.getElementById('ed_cour_id').value;
+  const cour = (window._coursCache||[]).find(c=>c.id===courId);
+  const adresse = cour ? (window._adressesCache||[]).find(a=>a.id===cour.adresse_id) : null;
+  document.getElementById('ed_adresse_affichee').value = adresse ? adresse.adresse : (cour ? '— Aucune adresse liée à cette cour —' : '');
+}
+async function saveEditDepense(id){
+  const rec = {
+    date_depense: document.getElementById('ed_date').value,
+    libelle: document.getElementById('ed_libelle').value,
+    montant: parseFloat(document.getElementById('ed_montant').value||0),
+    cour_id: document.getElementById('ed_cour_id').value||null,
+    type_maison_id: document.getElementById('ed_type_maison_id').value||null
+  };
+  if(!rec.libelle||!rec.montant){ toast("Veuillez remplir le libellé et le montant."); return; }
+  const {error} = await sb.from('depenses').update(rec).eq('id',id);
+  if(error){ toast("Erreur: "+error.message); return; }
+  closeModal();
+  toast("Dépense modifiée ✅ (comptabilité mise à jour)");
+  renderComptabilite();
 }
 async function ajouterDepense(){
   const courId = document.getElementById('d_cour_id').value || null;
