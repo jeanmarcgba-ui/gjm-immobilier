@@ -281,6 +281,8 @@ async function loadParamsAndEnter(){
 }
 const REALTIME_TABLES = ['locataires','locaux','paiements','paiements_arrieres','depenses','cours','types_maison','adresses_locaux','utilisateurs','parametres_generales'];
 let _realtimeChannel = null;
+let _lastUserAction = 0;
+document.addEventListener('click', ()=>{ _lastUserAction = Date.now(); }, true);
 function setupRealtime(){
   if(_realtimeChannel) return;
   let debounceTimer = null;
@@ -288,7 +290,7 @@ function setupRealtime(){
   REALTIME_TABLES.forEach(t=>{
     _realtimeChannel.on('postgres_changes', {event:'*', schema:'public', table:t}, ()=>{
       clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(rafraichirPageActuelle, 350);
+      debounceTimer = setTimeout(rafraichirPageActuelle, 900);
     });
   });
   _realtimeChannel.subscribe();
@@ -296,6 +298,8 @@ function setupRealtime(){
 function rafraichirPageActuelle(){
   // Ne pas rafraîchir si un formulaire/modal est ouvert, pour ne pas interrompre la saisie
   if(document.getElementById('modalOverlay')) return;
+  // Ne pas re-rafraîchir juste après une action locale (déjà rafraîchi manuellement) pour éviter le clignotement
+  if(Date.now() - _lastUserAction < 1600) return;
   const fn = {accueil:renderAccueil, locataires:renderLocataires, dossiers:renderDossiers, locaux:renderLocaux, paiements:renderPaiements, comptabilite:renderComptabilite, options:renderOptions}[CURRENT_PAGE];
   if(fn) fn();
 }
@@ -1861,16 +1865,17 @@ async function getSituationArrieres(){
 async function renderComptabilite(){
   const c=document.getElementById('content');
   c.innerHTML='<div class="spinner"></div>';
-  const [{data:paiements},{data:depenses},{data:locataires},{data:locaux},{data:cours},{data:types},{data:paiementsArrieres}] = await Promise.all([
+  const [{data:paiements},{data:depenses},{data:locataires},{data:locaux},{data:cours},{data:types},{data:paiementsArrieres},{data:adresses}] = await Promise.all([
     sb.from('paiements').select('*').order('date_paiement',{ascending:false}),
     sb.from('depenses').select('*').order('date_depense',{ascending:false}),
     sb.from('locataires').select('*'),
     sb.from('locaux').select('*'),
     sb.from('cours').select('*'),
     sb.from('types_maison').select('*'),
-    sb.from('paiements_arrieres').select('*').order('date_paiement',{ascending:false})
+    sb.from('paiements_arrieres').select('*').order('date_paiement',{ascending:false}),
+    sb.from('adresses_locaux').select('*')
   ]);
-  window._locatairesCache = locataires||[]; window._locauxCache = locaux||[]; window._coursCache = cours||[]; window._typesCache = types||[];
+  window._locatairesCache = locataires||[]; window._locauxCache = locaux||[]; window._coursCache = cours||[]; window._typesCache = types||[]; window._adressesCache = adresses||[];
   const totalRecuLoyers = (paiements||[]).reduce((s,p)=>s+Number(p.total_recu||p.montant_recu||0),0);
   const totalRecuArrieres = (paiementsArrieres||[]).reduce((s,p)=>s+Number(p.montant_paye||0),0);
   const totalRecu = totalRecuLoyers + totalRecuArrieres;
@@ -1883,6 +1888,14 @@ async function renderComptabilite(){
     const typ = loc ? (types||[]).find(t=>t.id===loc.type_maison_id) : null;
     return {cour: cour?cour.nom:'', typ: typ?typ.nom:''};
   };
+  const infoDepense = (d)=>{
+    if(d.cour_id){
+      const cour = (cours||[]).find(cr=>cr.id===d.cour_id);
+      const typ = d.type_maison_id ? (types||[]).find(t=>t.id===d.type_maison_id) : null;
+      return {cour: cour?cour.nom:'', typ: typ?typ.nom:''};
+    }
+    return infoLocal(d.locaux_id);
+  };
 
   const rowsPaiements = (paiements||[]).map(p=>{
     const l = (locataires||[]).find(x=>x.id===p.locataire_id);
@@ -1891,7 +1904,7 @@ async function renderComptabilite(){
     return `<tr data-cour="${info.cour}" data-type="${info.typ}"><td>${fmtDate(p.date_paiement)}</td><td>${nom}</td><td>${info.cour||'—'}</td><td>${info.typ||'—'}</td><td>${fmtDate(p.mois_concerne)}</td><td>${fmtMoney(p.montant_recu)}</td><td>${fmtMoney(p.reste)}</td><td>${fmtMoney(p.montant_arriere_paye)}</td><td><b>${fmtMoney(p.total_recu||p.montant_recu)}</b></td></tr>`;
   }).join('');
   const rowsDepenses = (depenses||[]).map(d=>{
-    const info = infoLocal(d.locaux_id);
+    const info = infoDepense(d);
     return `<tr data-cour="${info.cour}" data-type="${info.typ}"><td>${fmtDate(d.date_depense)}</td><td>${d.libelle}</td><td>${info.cour||'—'}</td><td>${info.typ||'—'}</td><td>${fmtMoney(d.montant)}</td>
     <td><button class="btn-danger" onclick="deleteDepense('${d.id}')" style="padding:5px 9px;font-size:11px;">Suppr.</button></td></tr>`;
   }).join('');
@@ -1918,11 +1931,11 @@ async function renderComptabilite(){
         <div class="field"><label>Date</label><input type="date" id="d_date" value="${new Date().toISOString().slice(0,10)}"></div>
         <div class="field"><label>Libellé</label><input id="d_libelle" placeholder="Ex: Réparation plomberie"></div>
         <div class="field"><label>Montant</label><input type="number" id="d_montant"></div>
-        <div class="field"><label>Local concerné (optionnel)</label>
-          <select id="d_local_id"><option value="">— Aucun —</option>${(locaux||[]).map(l=>{
-            const info = infoLocal(l.id);
-            return `<option value="${l.id}">${info.cour?info.cour+' — ':''}${info.typ||l.type_local} (${fmtMoney(l.prix)})</option>`;
-          }).join('')}</select>
+        <div class="field"><label>Cour concernée (optionnel)</label>
+          <select id="d_cour_id" onchange="onDepenseCourChange()"><option value="">— Aucune —</option>${(cours||[]).map(c=>`<option value="${c.id}">${c.nom}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>Adresse de la cour</label>
+          <input id="d_adresse_affichee" readonly placeholder="— s'affiche automatiquement —">
         </div>
         <div class="field"><label>Type de maison concerné (optionnel)</label>
           <select id="d_type_maison_id"><option value="">— Aucun —</option>${(types||[]).map(t=>`<option value="${t.id}">${t.nom}</option>`).join('')}</select>
@@ -2179,8 +2192,11 @@ function renderBilanContent(){
   });
   const depensesParCour = {};
   depensesF.forEach(dep=>{
-    const loc = d.locaux.find(l=>l.id===dep.locaux_id);
-    const cour = loc ? d.cours.find(c=>c.id===loc.cour_id) : null;
+    let cour = dep.cour_id ? d.cours.find(c=>c.id===dep.cour_id) : null;
+    if(!cour){
+      const loc = d.locaux.find(l=>l.id===dep.locaux_id);
+      cour = loc ? d.cours.find(c=>c.id===loc.cour_id) : null;
+    }
     const key = cour ? cour.nom : 'Non liée à une cour';
     depensesParCour[key] = (depensesParCour[key]||0) + Number(dep.montant||0);
   });
@@ -2514,8 +2530,27 @@ async function lancerRestauration(file){
   document.getElementById('inputRestauration').value = '';
 }
 
+function onDepenseCourChange(){
+  const courId = document.getElementById('d_cour_id').value;
+  const cour = (window._coursCache||[]).find(c=>c.id===courId);
+  const adresse = cour ? (window._adressesCache||[]).find(a=>a.id===cour.adresse_id) : null;
+  document.getElementById('d_adresse_affichee').value = adresse ? adresse.adresse : (cour ? '— Aucune adresse liée à cette cour —' : '');
+  const selType = document.getElementById('d_type_maison_id');
+  const types = window._typesCache||[];
+  const typesFiltres = courId ? types.filter(t=>t.cour_id===courId) : types;
+  selType.innerHTML = '<option value="">— Aucun —</option>' + typesFiltres.map(t=>`<option value="${t.id}">${t.nom}</option>`).join('');
+}
 async function ajouterDepense(){
-  const rec = {date_depense:document.getElementById('d_date').value, libelle:document.getElementById('d_libelle').value, montant:parseFloat(document.getElementById('d_montant').value||0), locaux_id: document.getElementById('d_local_id').value||null, type_maison_id: document.getElementById('d_type_maison_id').value||null};
+  const courId = document.getElementById('d_cour_id').value || null;
+  const cour = courId ? (window._coursCache||[]).find(c=>c.id===courId) : null;
+  const rec = {
+    date_depense:document.getElementById('d_date').value,
+    libelle:document.getElementById('d_libelle').value,
+    montant:parseFloat(document.getElementById('d_montant').value||0),
+    cour_id: courId,
+    locaux_id: null,
+    type_maison_id: document.getElementById('d_type_maison_id').value||null
+  };
   if(!rec.libelle||!rec.montant){ toast("Veuillez remplir le libellé et le montant."); return; }
   const {error} = await sb.from('depenses').insert(rec);
   if(error){ toast("Erreur: "+error.message); return; }
