@@ -484,6 +484,7 @@ function canEdit(section){
 }
 
 function openModal(html){
+  document.querySelectorAll('.modal-overlay').forEach(el=>el.remove());
   const ov=document.createElement('div');
   ov.className='modal-overlay';
   ov.id='modalOverlay';
@@ -492,8 +493,7 @@ function openModal(html){
   document.body.appendChild(ov);
 }
 function closeModal(){
-  const ov=document.getElementById('modalOverlay');
-  if(ov) ov.remove();
+  document.querySelectorAll('.modal-overlay').forEach(el=>el.remove());
 }
 
 /* ============================================================
@@ -1071,19 +1071,14 @@ function openOptionsListManager(){
   const adresses = window._adressesCache||[];
   const types = window._typesCache||[];
   const cours = window._coursCache||[];
+  const typesParCour = (courId)=>types.filter(t=>t.cour_id===courId);
+  const typesSansCour = types.filter(t=>!t.cour_id);
   openModal(`
     <h2>Adresses, cours et types de maison</h2>
-    <div class="row">
-      <div class="field">
-        <label>Ajouter une adresse</label>
-        <div style="display:flex;gap:8px;"><input id="newAdresse"><button class="btn-secondary" onclick="addAdresse()">Ajouter</button></div>
-        <ul>${adresses.map(a=>`<li>${a.adresse} <button class="btn-ghost" onclick="deleteAdresse('${a.id}')" style="padding:2px 8px">✕</button></li>`).join('')}</ul>
-      </div>
-      <div class="field">
-        <label>Ajouter un type de maison</label>
-        <div style="display:flex;gap:8px;"><input id="newType"><button class="btn-secondary" onclick="addType()">Ajouter</button></div>
-        <ul>${types.map(t=>`<li>${t.nom} <button class="btn-ghost" onclick="deleteType('${t.id}')" style="padding:2px 8px">✕</button></li>`).join('')}</ul>
-      </div>
+    <div class="field">
+      <label>Ajouter une adresse</label>
+      <div style="display:flex;gap:8px;"><input id="newAdresse"><button class="btn-secondary" onclick="addAdresse()">Ajouter</button></div>
+      <ul>${adresses.map(a=>`<li>${a.adresse} <button class="btn-ghost" onclick="deleteAdresse('${a.id}')" style="padding:2px 8px">✕</button></li>`).join('')}</ul>
     </div>
     <div class="section-title">Cours</div>
     <div class="row">
@@ -1091,9 +1086,43 @@ function openOptionsListManager(){
       <div class="field"><label>Nombre de portes</label><input type="number" min="0" id="newCourPortes" value="0"></div>
     </div>
     <button class="btn-secondary" onclick="addCour()">Ajouter la cour</button>
-    <ul>${cours.map(c=>`<li>${c.nom} — ${c.nombre_portes||0} porte(s) <button class="btn-ghost" onclick="deleteCour('${c.id}')" style="padding:2px 8px">✕</button></li>`).join('')}</ul>
+
+    <div class="section-title">Types de maison par cour</div>
+    <p style="color:var(--muted);font-size:13px;">Choisissez une cour, puis ajoutez un ou plusieurs types de maison pour celle-ci (un par ligne).</p>
+    <div class="field"><label>Cour concernée</label>
+      <select id="newTypeCourId">${cours.map(c=>`<option value="${c.id}">${c.nom}</option>`).join('') || '<option value="">— Créez d\'abord une cour —</option>'}</select>
+    </div>
+    <div class="field"><label>Types de maison (un par ligne)</label>
+      <textarea id="newTypesMultiple" rows="4" placeholder="Ex:\nStudio\nF2\nF3\nDuplex"></textarea>
+    </div>
+    <button class="btn-secondary" onclick="addTypesMultiple()">Ajouter ces types à la cour</button>
+
+    <div style="margin-top:16px;">
+      ${cours.map(c=>`
+        <div style="margin-bottom:10px;">
+          <b>${c.nom}</b> — ${c.nombre_portes||0} porte(s)
+          <button class="btn-ghost" onclick="deleteCour('${c.id}')" style="padding:2px 8px">✕ Suppr. la cour</button>
+          <ul>${typesParCour(c.id).map(t=>`<li>${t.nom} <button class="btn-ghost" onclick="deleteType('${t.id}')" style="padding:2px 8px">✕</button></li>`).join('') || '<li style="color:var(--muted)">Aucun type de maison pour cette cour</li>'}</ul>
+        </div>
+      `).join('')}
+      ${typesSansCour.length ? `<div><b>Sans cour associée</b><ul>${typesSansCour.map(t=>`<li>${t.nom} <button class="btn-ghost" onclick="deleteType('${t.id}')" style="padding:2px 8px">✕</button></li>`).join('')}</ul></div>` : ''}
+    </div>
     <div class="modal-actions"><button class="btn-secondary" onclick="closeModal();renderLocaux();">Fermer</button></div>
   `);
+}
+async function addTypesMultiple(){
+  const courId = document.getElementById('newTypeCourId').value;
+  const raw = document.getElementById('newTypesMultiple').value;
+  const noms = raw.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(!courId){ toast("Veuillez d'abord créer et choisir une cour."); return; }
+  if(!noms.length){ toast("Veuillez saisir au moins un type de maison."); return; }
+  const rows = noms.map(nom=>({nom, cour_id:courId}));
+  const {error} = await sb.from('types_maison').insert(rows);
+  if(error){ toast("Erreur: "+error.message); return; }
+  const {data} = await sb.from('types_maison').select('*');
+  window._typesCache = data;
+  toast(noms.length+" type(s) de maison ajouté(s) ✅");
+  openOptionsListManager();
 }
 async function addCour(){
   const nom = document.getElementById('newCourNom').value.trim();
@@ -1104,7 +1133,7 @@ async function addCour(){
   window._coursCache = data;
   openOptionsListManager();
 }
-async function deleteCour(id){ await sb.from('cours').delete().eq('id',id); const {data} = await sb.from('cours').select('*'); window._coursCache=data; openOptionsListManager(); }
+async function deleteCour(id){ await sb.from('cours').delete().eq('id',id); const [{data:cours},{data:types}] = await Promise.all([sb.from('cours').select('*'), sb.from('types_maison').select('*')]); window._coursCache=cours; window._typesCache=types; openOptionsListManager(); }
 async function addAdresse(){
   const v = document.getElementById('newAdresse').value.trim();
   if(!v) return;
@@ -1114,14 +1143,6 @@ async function addAdresse(){
   openOptionsListManager();
 }
 async function deleteAdresse(id){ await sb.from('adresses_locaux').delete().eq('id',id); const {data} = await sb.from('adresses_locaux').select('*'); window._adressesCache=data; openOptionsListManager(); }
-async function addType(){
-  const v = document.getElementById('newType').value.trim();
-  if(!v) return;
-  await sb.from('types_maison').insert({nom:v});
-  const {data} = await sb.from('types_maison').select('*');
-  window._typesCache = data;
-  openOptionsListManager();
-}
 async function deleteType(id){ await sb.from('types_maison').delete().eq('id',id); const {data} = await sb.from('types_maison').select('*'); window._typesCache=data; openOptionsListManager(); }
 
 function openLocalForm(existing){
@@ -1138,7 +1159,7 @@ function openLocalForm(existing){
         <select id="l_adresse_id">${adresses.map(a=>`<option value="${a.id}" ${loc.adresse_id===a.id?'selected':''}>${a.adresse}</option>`).join('')}</select>
       </div>
       <div class="field"><label>Nom de la cour</label>
-        <select id="l_cour_id"><option value="">— Aucune —</option>${cours.map(c=>`<option value="${c.id}" ${loc.cour_id===c.id?'selected':''}>${c.nom}</option>`).join('')}</select>
+        <select id="l_cour_id" onchange="refreshTypesMaisonSelect()"><option value="">— Aucune —</option>${cours.map(c=>`<option value="${c.id}" ${loc.cour_id===c.id?'selected':''}>${c.nom}</option>`).join('')}</select>
       </div>
       <div class="field"><label>Type de local</label>
         <select id="l_type_local" onchange="toggleLocalLocataire()">
@@ -1149,12 +1170,12 @@ function openLocalForm(existing){
     </div>
     <div class="row">
       <div class="field"><label>Type de maison</label>
-        <select id="l_type_maison_id">${types.map(t=>`<option value="${t.id}" ${loc.type_maison_id===t.id?'selected':''}>${t.nom}</option>`).join('')}</select>
+        <select id="l_type_maison_id"></select>
       </div>
       <div class="field"><label>Prix du local (FCFA)</label><input type="number" id="l_prix" value="${loc.prix||''}"></div>
       <div class="field"><label>Caution perçue (FCFA)</label><input type="number" id="l_caution" value="${loc.caution||''}"></div>
     </div>
-    <p style="font-size:12px;color:var(--muted);margin-top:-6px;">ℹ️ La caution est indépendante du paiement de loyer — elle est enregistrée uniquement à titre d'information sur le local.</p>
+    <p style="font-size:12px;color:var(--muted);margin-top:-6px;">ℹ️ La caution est indépendante du paiement de loyer — elle est enregistrée uniquement à titre d'information sur le local. Le type de maison proposé dépend de la cour choisie ci-dessus.</p>
     <div class="field"><label>Locataire</label><select id="l_locataire_id"></select></div>
     <div id="l_auto_fields" style="font-size:13px;color:var(--muted);margin-top:8px;"></div>
     <div class="modal-actions">
@@ -1163,7 +1184,17 @@ function openLocalForm(existing){
     </div>
   `);
   window._editingLocal = loc;
+  refreshTypesMaisonSelect();
   toggleLocalLocataire();
+}
+function refreshTypesMaisonSelect(){
+  const courId = document.getElementById('l_cour_id').value;
+  const types = window._typesCache||[];
+  const loc = window._editingLocal||{};
+  const filtres = courId ? types.filter(t=>t.cour_id===courId) : types;
+  const sel = document.getElementById('l_type_maison_id');
+  sel.innerHTML = filtres.map(t=>`<option value="${t.id}" ${loc.type_maison_id===t.id?'selected':''}>${t.nom}</option>`).join('')
+    || '<option value="">— Aucun type pour cette cour —</option>';
 }
 function toggleLocalLocataire(){
   const type = document.getElementById('l_type_local').value;
@@ -2633,3 +2664,4 @@ async function deleteUser(id){
 </script>
 </body>
 </html>
+
