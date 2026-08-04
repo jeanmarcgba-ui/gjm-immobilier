@@ -999,7 +999,7 @@ async function telechargerFicheLocataire(){
 }
 
 async function deleteLocataire(id){
-  if(!confirm("Confirmez-vous la suppression de ce locataire ?")) return;
+  if(!confirm("Confirmez-vous la suppression de ce locataire ? Si ce locataire est lié à un local, celui-ci redeviendra automatiquement vacant.")) return;
   const {error} = await sb.from('locataires').delete().eq('id',id);
   if(error){ toast("Erreur: "+error.message); return; }
   toast("Locataire supprimé"); renderLocataires();
