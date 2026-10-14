@@ -1,0 +1,11 @@
+Restauration de l'appli GJM Gestion Immobilière Locataire
+==========================================================
+Ces deux fichiers sont ceux d'avant l'écrasement par GJM File Hub :
+  - index.html  (appli immobilière, 311 Ko)
+  - sw.js       (service worker d'origine, 560 octets)
+
+A déposer dans le dépôt : jeanmarcgba-ui/gjm-immobilier
+(Add file > Upload files > Commit changes)
+
+Facultatif : supprimer dans ce même dépôt les fichiers de GJM File Hub
+qui n'ont rien à y faire : manifest.json, icon-192.png, icon-512.png
