@@ -606,12 +606,15 @@ async function renderAccueil(){
   const c=document.getElementById('content');
   c.innerHTML='<div class="spinner"></div>';
 
-  const [{data:locataires},{data:locaux},{data:paiements},{data:paiementsArrieres}] = await Promise.all([
-    sb.from('locataires').select('id'),
-    sb.from('locaux').select('id,prix,locataire_id'),
+  const [rLocataires,rLocaux,rPaiements,rPaiementsArrieres,rCours,rTypes] = await Promise.all([
+    sb.from('locataires').select('*'),
+    sb.from('locaux').select('*'),
     sb.from('paiements').select('*'),
-    sb.from('paiements_arrieres').select('*')
+    sb.from('paiements_arrieres').select('*'),
+    sb.from('cours').select('*'),
+    sb.from('types_maison').select('*')
   ]);
+  const locataires = rLocataires.data, locaux = rLocaux.data, paiements = rPaiements.data, paiementsArrieres = rPaiementsArrieres.data;
 
   const moisActuel = new Date().toISOString().slice(0,7);
   const paiementsMois = (paiements||[]).filter(p=>p.mois_concerne && p.mois_concerne.startsWith(moisActuel));
@@ -619,7 +622,8 @@ async function renderAccueil(){
   const totalRecuMois = paiementsMois.reduce((s,p)=>s+Number(p.total_recu||p.montant_recu||0),0) + arrieresMois.reduce((s,p)=>s+Number(p.montant_paye||0),0);
   const locauxOccupes = (locaux||[]).filter(l=>l.locataire_id).length;
 
-  const situationArrieres = await getSituationArrieres();
+  // Réutilise les données déjà chargées ci-dessus au lieu de refaire un aller-retour réseau
+  const situationArrieres = await getSituationArrieres([rPaiements,rPaiementsArrieres,rLocataires,rLocaux,rCours,rTypes]);
 
   const bannerLogo = (PARAMS && PARAMS.mode==='entreprise' && PARAMS.ent_logo_url) ? PARAMS.ent_logo_url : GJM_BRAND_LOGO;
   let welcomeText = `Bienvenue, ${CURRENT_USER.nom}`;
@@ -1848,8 +1852,8 @@ async function deletePaiementArriere(id){
   renderPaiements();
 }
 
-async function getSituationArrieres(){
-  const [{data:paiements},{data:paiementsArrieres},{data:locataires},{data:locaux},{data:cours},{data:types}] = await Promise.all([
+async function getSituationArrieres(preloaded){
+  const [{data:paiements},{data:paiementsArrieres},{data:locataires},{data:locaux},{data:cours},{data:types}] = preloaded || await Promise.all([
     sb.from('paiements').select('reste,montant_arriere_paye,mois_concerne,locaux_id'),
     sb.from('paiements_arrieres').select('montant_paye,locaux_id'),
     sb.from('locataires').select('*'),
