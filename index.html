@@ -149,6 +149,7 @@ tr:hover td{background:#F8FAFF;}
     </div>
     <button class="btn-primary" onclick="doLogin()">Se connecter</button>
     <div id="loginError"></div>
+    <button id="pwaInstallBtnLogin" class="hidden" onclick="lancerInstallationPWA()" style="margin-top:14px;background:#fff;border:2px solid var(--navy-dark,#16337A);color:var(--navy-dark,#16337A);border-radius:10px;padding:10px 16px;font-weight:600;cursor:pointer;width:100%">📲 Installer l'application</button>
   </div>
 </div>
 
@@ -177,7 +178,7 @@ tr:hover td{background:#F8FAFF;}
     </div>
   </div>
   <div id="main">
-    <div id="topbar"><h1 id="pageTitle">Accueil</h1></div>
+    <div id="topbar"><h1 id="pageTitle">Accueil</h1><button id="pwaInstallBtnApp" class="hidden" onclick="lancerInstallationPWA()" style="background:var(--orange,#E07B1A);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer">📲 Installer l'application</button></div>
     <div id="content"></div>
   </div>
 </div>
@@ -356,6 +357,31 @@ async function goTo(id){
 
 /* ================= INIT ================= */
 /* ================= PWA — Rendre l'appli installable ================= */
+/* ================= INSTALLATION PWA ================= */
+let PWA_DEFERRED_PROMPT = null;
+window.addEventListener('beforeinstallprompt', (e)=>{
+  e.preventDefault();
+  PWA_DEFERRED_PROMPT = e;
+  document.getElementById('pwaInstallBtnLogin')?.classList.remove('hidden');
+  document.getElementById('pwaInstallBtnApp')?.classList.remove('hidden');
+});
+window.addEventListener('appinstalled', ()=>{
+  PWA_DEFERRED_PROMPT = null;
+  document.getElementById('pwaInstallBtnLogin')?.classList.add('hidden');
+  document.getElementById('pwaInstallBtnApp')?.classList.add('hidden');
+});
+async function lancerInstallationPWA(){
+  if(!PWA_DEFERRED_PROMPT){
+    alert("L'installation n'est pas proposée pour le moment par votre navigateur. Essayez de recharger la page, ou utilisez le menu ⋮ du navigateur puis « Installer l'application » / « Ajouter à l'écran d'accueil ».");
+    return;
+  }
+  PWA_DEFERRED_PROMPT.prompt();
+  await PWA_DEFERRED_PROMPT.userChoice;
+  PWA_DEFERRED_PROMPT = null;
+  document.getElementById('pwaInstallBtnLogin')?.classList.add('hidden');
+  document.getElementById('pwaInstallBtnApp')?.classList.add('hidden');
+}
+
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
