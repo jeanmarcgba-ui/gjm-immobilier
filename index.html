@@ -150,6 +150,7 @@ tr:hover td{background:#F8FAFF;}
     </div>
     <button class="btn-primary" onclick="doLogin()">Se connecter</button>
     <div id="loginError"></div>
+    <div style="margin-top:10px;font-size:11px;color:#9AA3B8;text-align:center">Version <span id="appVersionLogin"></span></div>
     <button id="pwaInstallBtnLogin" class="hidden" onclick="lancerInstallationPWA()" style="margin-top:14px;background:#fff;border:2px solid var(--navy-dark,#16337A);color:var(--navy-dark,#16337A);border-radius:10px;padding:10px 16px;font-weight:600;cursor:pointer;width:100%">📲 Installer l'application</button>
   </div>
 </div>
@@ -186,6 +187,7 @@ tr:hover td{background:#F8FAFF;}
 
 <script>
 /* ================= CONFIG SUPABASE ================= */
+const APP_VERSION = 'v15:25';
 const SUPABASE_URL = "https://rbnsymxybhihspknfqdb.supabase.co";
 const SUPABASE_KEY = "sb_publishable_F0GVlsQeKnCyKs5DWYgWKg_H6pYhZ4M";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -358,6 +360,7 @@ async function goTo(id){
 
 /* ================= INIT ================= */
 /* ================= PWA — Rendre l'appli installable ================= */
+document.addEventListener('DOMContentLoaded',()=>{ const v=document.getElementById('appVersionLogin'); if(v) v.textContent=APP_VERSION; });
 /* ================= INSTALLATION PWA ================= */
 let PWA_DEFERRED_PROMPT = null;
 window.addEventListener('beforeinstallprompt', (e)=>{
@@ -477,6 +480,23 @@ function nombreEnLettresFr(nombre){
   });
   if(reste>0 || parties.length===0) parties.push(troisChiffres(reste));
   return (neg?'moins ':'') + parties.join(' ').replace(/\s+/g,' ').trim();
+}
+async function genererQRDataUrl(text){
+  const qrDiv = document.createElement('div');
+  qrDiv.style.cssText = 'position:fixed;left:-9999px;top:0;';
+  document.body.appendChild(qrDiv);
+  try{
+    new QRCode(qrDiv, {text, width:150, height:150});
+    for(let i=0;i<20;i++){
+      await new Promise(r=>setTimeout(r,100));
+      const canvas = qrDiv.querySelector('canvas');
+      const img = qrDiv.querySelector('img');
+      if(canvas && canvas.width>0){ try{ return canvas.toDataURL('image/png'); }catch(e){} }
+      if(img && img.src && img.src.startsWith('data:')) return img.src;
+    }
+  }catch(e){}
+  finally{ qrDiv.remove(); }
+  return null;
 }
 function previewFile(inputEl, previewId){
   const box = document.getElementById(previewId);
@@ -1634,6 +1654,10 @@ async function enregistrerPaiement(){
 }
 
 async function genererDocument(paiementId, type){
+  try{ await _genererDocumentImpl(paiementId, type); }
+  catch(e){ console.error(e); toast("Erreur reçu : "+(e && e.message ? e.message : e)); }
+}
+async function _genererDocumentImpl(paiementId, type){
   const p = (window._paiementsCache||[]).find(x=>x.id===paiementId);
   if(!p) return;
   if(type==='quittance' && p.statut!=='complet'){ toast("La quittance n'est disponible qu'après paiement complet."); return; }
@@ -1649,14 +1673,7 @@ async function genererDocument(paiementId, type){
     date: p.date_paiement, heure: p.heure_paiement, payeur: p.nom_payeur
   });
 
-  const qrDiv = document.createElement('div');
-  qrDiv.style.display='none';
-  document.body.appendChild(qrDiv);
-  new QRCode(qrDiv, {text:qrData, width:150, height:150});
-  await new Promise(r=>setTimeout(r,250));
-  const qrImg = qrDiv.querySelector('img') || qrDiv.querySelector('canvas');
-  const qrDataUrl = qrImg.tagName==='CANVAS' ? qrImg.toDataURL() : qrImg.src;
-  qrDiv.remove();
+  const qrDataUrl = await genererQRDataUrl(qrData);
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
@@ -1682,7 +1699,7 @@ async function genererDocument(paiementId, type){
   doc.setTextColor(128,0,32);
   doc.text(`N° de reçu : ${p.numero_recu||'—'}`, 196, 18, {align:'right'});
   doc.setTextColor(0,0,0);
-  doc.addImage(qrDataUrl,'PNG',174,22,20,20);
+  if(qrDataUrl){ try{ doc.addImage(qrDataUrl,'PNG',174,22,20,20); }catch(e){} }
 
   // Bandeau titre (bleu, type reçu/quittance)
   let y = 48;
@@ -1863,6 +1880,10 @@ async function deletePaiement(id){
 }
 
 async function genererDocumentArriere(id, type){
+  try{ await _genererDocumentArriereImpl(id, type); }
+  catch(e){ console.error(e); toast("Erreur reçu : "+(e && e.message ? e.message : e)); }
+}
+async function _genererDocumentArriereImpl(id, type){
   const pa = (window._paiementsArrieresCache||[]).find(x=>x.id===id);
   if(!pa) return;
   if(type==='quittance' && pa.statut!=='total'){ toast("La quittance n'est disponible qu'après paiement total de l'arriéré."); return; }
@@ -1877,14 +1898,7 @@ async function genererDocumentArriere(id, type){
     proprietaire: proprioNom, locataire: nomLocataire, type:'arriere',
     date: pa.date_paiement, montant: pa.montant_paye
   });
-  const qrDiv = document.createElement('div');
-  qrDiv.style.display='none';
-  document.body.appendChild(qrDiv);
-  new QRCode(qrDiv, {text:qrData, width:150, height:150});
-  await new Promise(r=>setTimeout(r,250));
-  const qrImg = qrDiv.querySelector('img') || qrDiv.querySelector('canvas');
-  const qrDataUrl = qrImg.tagName==='CANVAS' ? qrImg.toDataURL() : qrImg.src;
-  qrDiv.remove();
+  const qrDataUrl = await genererQRDataUrl(qrData);
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
@@ -1910,7 +1924,7 @@ async function genererDocumentArriere(id, type){
   doc.setTextColor(128,0,32);
   doc.text(`N° de reçu : ARR-${pa.id.slice(0,8).toUpperCase()}`, 196, 18, {align:'right'});
   doc.setTextColor(0,0,0);
-  doc.addImage(qrDataUrl,'PNG',174,22,20,20);
+  if(qrDataUrl){ try{ doc.addImage(qrDataUrl,'PNG',174,22,20,20); }catch(e){} }
 
   // Bandeau titre (bleu, type reçu/quittance d'arriéré)
   let y = 48;
