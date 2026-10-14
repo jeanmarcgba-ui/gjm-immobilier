@@ -137,11 +137,15 @@ tr:hover td{background:#F8FAFF;}
     <p>Gestion Immobilière Locataire</p>
     <div class="field" style="text-align:left">
       <label>Nom d'utilisateur</label>
-      <input id="loginNom" placeholder="Ex: Jean Marc">
+      <input id="loginNom" placeholder="Ex: Jean Marc" autocapitalize="off" autocorrect="off" autocomplete="username" spellcheck="false">
     </div>
     <div class="field" style="text-align:left">
       <label>Mot de passe</label>
-      <input id="loginPass" type="password" placeholder="••••••••">
+      <input id="loginPass" type="password" placeholder="••••••••" autocapitalize="off" autocorrect="off" autocomplete="current-password" spellcheck="false">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:normal;margin-top:6px;cursor:pointer">
+        <input type="checkbox" id="loginShowPass" onchange="document.getElementById('loginPass').type=this.checked?'text':'password'" style="width:auto;margin:0">
+        Afficher le mot de passe
+      </label>
     </div>
     <button class="btn-primary" onclick="doLogin()">Se connecter</button>
     <div id="loginError"></div>
@@ -237,11 +241,11 @@ async function uploadFile(file, folder){
 /* ================= LOGIN ================= */
 async function doLogin(){
   const nom = document.getElementById('loginNom').value.trim();
-  const pass = document.getElementById('loginPass').value;
+  const pass = document.getElementById('loginPass').value.trim();
   const errEl = document.getElementById('loginError');
   errEl.textContent = "";
   if(!nom||!pass){ errEl.textContent="Veuillez remplir tous les champs."; return; }
-  const {data,error} = await sb.from('utilisateurs').select('*').ilike('nom_utilisateur',nom).eq('mot_de_passe',pass).maybeSingle();
+  const {data,error} = await sb.from('utilisateurs').select('*').ilike('nom_utilisateur',nom).ilike('mot_de_passe',pass).maybeSingle();
   if(error || !data){ errEl.textContent="Identifiants incorrects."; return; }
   CURRENT_USER = {nom:data.nom, role:data.role};
   sessionStorage.setItem('gjm_user', JSON.stringify(CURRENT_USER));
