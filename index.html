@@ -408,6 +408,24 @@ function slugify(str){
   return (str||'sans_nom').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').toLowerCase() || 'sans_nom';
 }
+async function urlToDataURL(url){
+  try{
+    const res = await fetch(url);
+    const blob = await res.blob();
+    return await new Promise((resolve,reject)=>{
+      const reader = new FileReader();
+      reader.onloadend = ()=>resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }catch(e){ return null; }
+}
+function dataUrlFormat(dataUrl){
+  const m = /^data:image\/(png|jpe?g|webp)/i.exec(dataUrl||'');
+  if(!m) return 'PNG';
+  const ext = m[1].toLowerCase();
+  return ext.startsWith('jpe') ? 'JPEG' : ext==='webp' ? 'WEBP' : 'PNG';
+}
 function previewFile(inputEl, previewId){
   const box = document.getElementById(previewId);
   if(!box) return;
@@ -528,6 +546,19 @@ function openModal(html){
 }
 function closeModal(){
   document.querySelectorAll('.modal-overlay').forEach(el=>el.remove());
+}
+function previewPDF(doc, filename){
+  const blobUrl = doc.output('bloburl');
+  openModal(`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+      <h3 style="margin:0;">Aperçu du document</h3>
+      <div>
+        <a href="${blobUrl}" download="${filename}" class="btn-primary" style="text-decoration:none;display:inline-block;margin-right:8px;">⬇️ Télécharger</a>
+        <button class="btn-outline" onclick="closeModal()">Fermer</button>
+      </div>
+    </div>
+    <iframe src="${blobUrl}" style="width:100%;height:65vh;border:1px solid #ddd;border-radius:8px;"></iframe>
+  `);
 }
 
 /* ============================================================
@@ -1534,6 +1565,7 @@ async function genererDocument(paiementId, type){
 
   const proprioNom = PARAMS.mode==='entreprise' ? PARAMS.ent_nom : PARAMS.proprio_nom;
   const proprioContact = PARAMS.mode==='entreprise' ? PARAMS.ent_contact : PARAMS.proprio_contact;
+  const logoDataUrl = (PARAMS.mode==='entreprise' && PARAMS.ent_logo_url) ? await urlToDataURL(PARAMS.ent_logo_url) : null;
 
   const qrData = JSON.stringify({
     proprietaire: proprioNom, locataire: nomLocataire, numero_recu: p.numero_recu,
@@ -1554,19 +1586,26 @@ async function genererDocument(paiementId, type){
   doc.setFont('times','normal');
   doc.setTextColor(0,0,0);
 
-  // Bloc N° de reçu (haut gauche) et QR code (haut droite)
+  // En-tête : logo (entreprise uniquement) + nom/contact à gauche, N° de reçu + QR à droite
+  let logoW = 0;
+  if(logoDataUrl){
+    try{ doc.addImage(logoDataUrl, dataUrlFormat(logoDataUrl), 14, 10, 22, 22); logoW = 26; }catch(e){}
+  }
+  const texteX = 14 + logoW;
+  doc.setFont('times','bold');
+  doc.setFontSize(13);
+  doc.setTextColor(0,0,0);
+  doc.text(proprioNom||'—', texteX, 18);
+  doc.setFont('times','normal');
+  doc.setFontSize(10);
+  doc.text('Contact : '+(proprioContact||'—'), texteX, 24);
+
   doc.setFont('times','bold');
   doc.setFontSize(12);
   doc.setTextColor(128,0,32);
-  doc.text(`N° de reçu : ${p.numero_recu||'—'}`, 14, 18);
+  doc.text(`N° de reçu : ${p.numero_recu||'—'}`, 196, 18, {align:'right'});
   doc.setTextColor(0,0,0);
-  doc.addImage(qrDataUrl,'PNG',168,10,24,24);
-
-  // Bloc propriétaire (sous le N° de reçu)
-  doc.setFontSize(12);
-  doc.text(proprioNom||'Nom du propriétaire', 14, 28);
-  doc.setFont('times','normal');
-  doc.text('Contact : '+(proprioContact||'—'), 14, 34);
+  doc.addImage(qrDataUrl,'PNG',174,22,20,20);
 
   // Titre centré
   doc.setFont('times','bold');
@@ -1616,8 +1655,7 @@ async function genererDocument(paiementId, type){
   doc.text('Document généré automatiquement par GJM Immobilier.', 14, 287);
 
   const fname = `${type}_${nomLocataire}_${p.mois_concerne}.pdf`.replace(/\s+/g,'_');
-  doc.save(fname);
-  toast((type==='quittance'?'Quittance':'Reçu')+" téléchargée ✅");
+  previewPDF(doc, fname);
 }
 
 function envoyerWhatsapp(paiementId){
@@ -1720,6 +1758,7 @@ async function genererDocumentArriere(id, type){
 
   const proprioNom = PARAMS.mode==='entreprise' ? PARAMS.ent_nom : PARAMS.proprio_nom;
   const proprioContact = PARAMS.mode==='entreprise' ? PARAMS.ent_contact : PARAMS.proprio_contact;
+  const logoDataUrl = (PARAMS.mode==='entreprise' && PARAMS.ent_logo_url) ? await urlToDataURL(PARAMS.ent_logo_url) : null;
 
   const qrData = JSON.stringify({
     proprietaire: proprioNom, locataire: nomLocataire, type:'arriere',
@@ -1739,17 +1778,26 @@ async function genererDocumentArriere(id, type){
   doc.setFont('times','normal');
   doc.setTextColor(0,0,0);
 
+  // En-tête : logo (entreprise uniquement) + nom/contact à gauche, N° de reçu + QR à droite
+  let logoW = 0;
+  if(logoDataUrl){
+    try{ doc.addImage(logoDataUrl, dataUrlFormat(logoDataUrl), 14, 10, 22, 22); logoW = 26; }catch(e){}
+  }
+  const texteX = 14 + logoW;
+  doc.setFont('times','bold');
+  doc.setFontSize(13);
+  doc.setTextColor(0,0,0);
+  doc.text(proprioNom||'—', texteX, 18);
+  doc.setFont('times','normal');
+  doc.setFontSize(10);
+  doc.text('Contact : '+(proprioContact||'—'), texteX, 24);
+
   doc.setFont('times','bold');
   doc.setFontSize(12);
   doc.setTextColor(128,0,32);
-  doc.text(`N° de reçu : ARR-${pa.id.slice(0,8).toUpperCase()}`, 14, 18);
+  doc.text(`N° de reçu : ARR-${pa.id.slice(0,8).toUpperCase()}`, 196, 18, {align:'right'});
   doc.setTextColor(0,0,0);
-  doc.addImage(qrDataUrl,'PNG',168,10,24,24);
-
-  doc.setFontSize(12);
-  doc.text(proprioNom||'Nom du propriétaire', 14, 28);
-  doc.setFont('times','normal');
-  doc.text('Contact : '+(proprioContact||'—'), 14, 34);
+  doc.addImage(qrDataUrl,'PNG',174,22,20,20);
 
   doc.setFont('times','bold');
   doc.setFontSize(16);
@@ -1782,8 +1830,7 @@ async function genererDocumentArriere(id, type){
   doc.setTextColor(150,150,150);
   doc.text('Document généré automatiquement par GJM Immobilier.', 14, 287);
 
-  doc.save(`${type}_arriere_${slugify(nomLocataire)}.pdf`);
-  toast((type==='quittance'?'Quittance':'Reçu')+" téléchargée ✅");
+  previewPDF(doc, `${type}_arriere_${slugify(nomLocataire)}.pdf`);
 }
 function envoyerWhatsappArriere(id){
   const pa = (window._paiementsArrieresCache||[]).find(x=>x.id===id);
